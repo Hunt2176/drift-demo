@@ -1,29 +1,59 @@
 import 'package:drift_demo/mock_http.dart';
 import 'package:drift_demo/drift/database.dart';
+import 'package:drift_demo/sync_manager.dart';
 
 void main() async {
   final db = DemoDatabase();
   final http = const MockHttp();
 
-  final runner = TransactionRunner((toExecute) async {
+  final manager = SyncManager(queryExecutor: (toExecute) async {
     // Removing this transaction and running `toExecute` directly would prevent the deadlock
-    return await db.transaction(() {
+    return await db.transaction(() async {
       return toExecute(db);
     }, requireNew: true);
   });
 
-  await runner.execute((db) async {
-    final valuesA = await http.get();
-    final valuesB = await http.get();
+  manager
+    // Adding an action that does not depend on any other action
+    ..add(const Typed<DemoDriftEntityA>(), {}, resolves: { const Typed<List<DemoDriftEntityA>>() }, (db, p) async {
+      final data = await http.get();
+      final results = await db.tableADao.insertFromHttp(data);
+      return [
+        SyncDependencyResult(type: const Typed<List<DemoDriftEntityA>>(), results: results)
+      ];
+    })
+    // Adding a second action that depends on the first
+    ..add(
+        const Typed<DemoDriftEntityB>(),
+        { SyncDependencyKey<List<DemoDriftEntityA>, List<DemoDriftEntityA>>() },
+        resolves: { const Typed<List<DemoDriftEntityB>>() },
+        (db, p) async {
+          // Example use of getting the dependency
+          final paraA = p.get<List<DemoDriftEntityA>, List<DemoDriftEntityA>>();
 
-    await db.tableADao.insertFromHttp(valuesA); // This line is where the deadlock would occur, check dao.dart for where it deadlocks directly
-    await db.tableBDao.insertFromHttp(valuesB);
-  });
-}
+          final data = await http.get();
+          final results = await db.tableBDao.insertFromHttp(data);
 
-class TransactionRunner {
-  TransactionRunner(this.execute);
-  final Future<void> Function(Future<void> Function(DemoDatabase database) toExecute) execute;
+          return [
+            SyncDependencyResult(type: const Typed<List<DemoDriftEntityB>>(), results: results)
+          ];
+        },
+    )
+    ..add(const Typed<Object>(),
+        {
+          SyncDependencyKey<List<DemoDriftEntityA>, List<DemoDriftEntityA>>(),
+          SyncDependencyKey<List<DemoDriftEntityB>, List<DemoDriftEntityB>>()
+        },
+        resolves: {},
+        (db, p) async {
+          // Example use of getting the dependency
+          final paraA = p.get<List<DemoDriftEntityA>, List<DemoDriftEntityA>>();
+          final paraB = p.get<List<DemoDriftEntityB>, List<DemoDriftEntityB>>();
 
-  final toExecute = <Future<void> Function(DemoDatabase database)>[];
+          // Do something with the dependencies
+          return [];
+        }
+    );
+
+  await manager.start();
 }

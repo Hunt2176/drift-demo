@@ -32,7 +32,7 @@ class SyncManager {
     _started = true;
 
     final completed = queryExecutor((a) async {
-      await _buildDependencyFuture(a)();
+      await buildDependencyFuture(a)();
     });
 
     return completed;
@@ -45,7 +45,7 @@ class SyncManager {
   }
 
 
-  Future<void> Function() _buildDependencyFuture(DemoDatabase db) {
+  Future<void> Function() buildDependencyFuture(DemoDatabase db) {
     final executeStarter = Completer<void>();
     final executeFuture = executeStarter.future;
 
@@ -128,7 +128,8 @@ class SyncManager {
 
     return () async {
       executeStarter.complete();
-      final allComplete = await futures.values.toList().waitEagerError.then((_) => null);
+      final f = futures.values.toList();
+      final allComplete = await f.waitEagerError.then((_) => null);
       return allComplete;
     };
 

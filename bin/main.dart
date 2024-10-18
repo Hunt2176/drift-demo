@@ -55,5 +55,10 @@ void main() async {
         }
     );
 
-  await manager.start();
+  await manager.queryExecutor((db) async {
+    final starter = manager.buildDependencyFuture(db);
+    await manager.queryExecutor((db) async {
+      await starter();
+    });
+  });
 }
